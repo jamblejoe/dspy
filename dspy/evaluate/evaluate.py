@@ -73,6 +73,7 @@ class Evaluate:
         *,
         devset: list["dspy.Example"],
         metric: Callable | None = None,
+        aggregation_fn: Callable[[list[float]], float] | None = None,
         num_threads: int | None = None,
         display_progress: bool = False,
         display_table: bool | int = False,
@@ -87,6 +88,12 @@ class Evaluate:
         Args:
             devset (list[dspy.Example]): the evaluation dataset.
             metric (Callable): The metric function to use for evaluation.
+            aggregation_fn (Optional[Callable[[list[float]], float]]): A function that aggregates
+                per-example metric scores into a single overall score. It receives a list of floats,
+                where each element is the value returned by ``metric`` for one example. It should
+                return a float in the 0–100 range to be consistent with the default
+                arithmetic-mean behaviour. Defaults to ``None``, which uses the arithmetic mean
+                scaled to 0–100.
             num_threads (Optional[int]): The number of threads to use for parallel evaluation.
             display_progress (bool): Whether to display progress during evaluation.
             display_table (Union[bool, int]): Whether to display the evaluation results in a table.
@@ -101,6 +108,7 @@ class Evaluate:
         """
         self.devset = devset
         self.metric = metric
+        self.aggregation_fn = aggregation_fn
         self.num_threads = num_threads
         self.display_progress = display_progress
         self.display_table = display_table
@@ -118,6 +126,7 @@ class Evaluate:
         self,
         program: "dspy.Module",
         metric: Callable | None = None,
+        aggregation_fn: Callable[[list[float]], float] | None = None,
         devset: list["dspy.Example"] | None = None,
         num_threads: int | None = None,
         display_progress: bool | None = None,
@@ -130,6 +139,10 @@ class Evaluate:
         Args:
             program (dspy.Module): The DSPy program to evaluate.
             metric (Callable): The metric function to use for evaluation. if not provided, use `self.metric`.
+            aggregation_fn (Optional[Callable[[list[float]], float]]): A function that aggregates
+                per-example metric scores into a single overall score. It receives a list of floats,
+                where each element is the value returned by ``metric`` for one example. If not
+                provided, use `self.aggregation_fn`.
             devset (list[dspy.Example]): the evaluation dataset. if not provided, use `self.devset`.
             num_threads (Optional[int]): The number of threads to use for parallel evaluation. if not provided, use
                 `self.num_threads`.
@@ -147,6 +160,7 @@ class Evaluate:
             - results: a list of (example, prediction, score) tuples for each example in devset
         """
         metric = metric if metric is not None else self.metric
+        aggregation_fn = aggregation_fn if aggregation_fn is not None else self.aggregation_fn
         devset = devset if devset is not None else self.devset
         num_threads = num_threads if num_threads is not None else self.num_threads
         display_progress = display_progress if display_progress is not None else self.display_progress
@@ -177,9 +191,16 @@ class Evaluate:
 
         results = [((dspy.Prediction(), self.failure_score) if r is None else r) for r in results]
         results = [(example, prediction, score) for example, (prediction, score) in zip(devset, results, strict=False)]
-        ncorrect, ntotal = sum(score for *_, score in results), len(devset)
 
-        logger.info(f"Average Metric: {ncorrect} / {ntotal} ({round(100 * ncorrect / ntotal, 1)}%)")
+        scores = [score for *_, score in results]
+        ntotal = len(devset)
+        if aggregation_fn is not None:
+            overall = float(aggregation_fn(scores))
+            logger.info(f"Aggregated Metric: {round(overall, 1)}%")
+        else:
+            ncorrect = sum(scores)
+            overall = round(100 * ncorrect / ntotal, 2)
+            logger.info(f"Average Metric: {ncorrect} / {ntotal} ({round(overall, 1)}%)")
 
         if display_table:
             if importlib.util.find_spec("pandas") is not None:
@@ -221,7 +242,7 @@ class Evaluate:
                 json.dump(data, f)
 
         return EvaluationResult(
-            score=round(100 * ncorrect / ntotal, 2),
+            score=overall,
             results=results,
         )
 

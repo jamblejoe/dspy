@@ -292,6 +292,65 @@ def test_evaluation_result_repr():
     assert repr(result) == "EvaluationResult(score=100.0, results=<list of 1 results>)"
 
 
+def test_evaluate_aggregation_fn_at_init():
+    """aggregation_fn set at construction replaces the default arithmetic mean."""
+    dspy.configure(lm=DummyLM({"What is 1+1?": {"answer": "2"}, "What is 2+2?": {"answer": "0"}}))
+    devset = [new_example("What is 1+1?", "2"), new_example("What is 2+2?", "4")]
+    program = Predict("question -> answer")
+    ev = Evaluate(
+        devset=devset,
+        metric=answer_exact_match,
+        aggregation_fn=lambda scores: 42.0,
+        display_progress=False,
+    )
+    result = ev(program)
+    assert result.score == 42.0
+
+
+def test_evaluate_aggregation_fn_receives_per_example_scores():
+    """aggregation_fn receives one score per example, matching the metric's return values."""
+    dspy.configure(lm=DummyLM({"What is 1+1?": {"answer": "2"}, "What is 2+2?": {"answer": "0"}}))
+    devset = [new_example("What is 1+1?", "2"), new_example("What is 2+2?", "4")]
+    program = Predict("question -> answer")
+
+    received = []
+
+    def capture(scores):
+        received.extend(scores)
+        return 0.0
+
+    ev = Evaluate(devset=devset, metric=answer_exact_match, aggregation_fn=capture, display_progress=False)
+    ev(program)
+    # one per-example score per devset entry; one correct (1.0), one wrong (0.0)
+    assert len(received) == 2
+    assert set(received) == {0.0, 1.0}
+
+
+def test_evaluate_aggregation_fn_override_at_call():
+    """aggregation_fn passed to __call__ overrides the one set at construction."""
+    dspy.configure(lm=DummyLM({"What is 1+1?": {"answer": "2"}}))
+    devset = [new_example("What is 1+1?", "2")]
+    program = Predict("question -> answer")
+    ev = Evaluate(
+        devset=devset,
+        metric=answer_exact_match,
+        aggregation_fn=lambda scores: 10.0,
+        display_progress=False,
+    )
+    result = ev(program, aggregation_fn=lambda scores: 99.0)
+    assert result.score == 99.0
+
+
+def test_evaluate_aggregation_fn_none_preserves_default():
+    """Without aggregation_fn the score is 100 * arithmetic mean, unchanged from before."""
+    dspy.configure(lm=DummyLM({"What is 1+1?": {"answer": "2"}, "What is 2+2?": {"answer": "0"}}))
+    devset = [new_example("What is 1+1?", "2"), new_example("What is 2+2?", "4")]
+    program = Predict("question -> answer")
+    ev = Evaluate(devset=devset, metric=answer_exact_match, display_progress=False)
+    result = ev(program)
+    assert result.score == 50.0
+
+
 def test_evaluate_save_as_json_with_history():
     """Test that save_as_json works with Examples containing dspy.History objects."""
     # Setup
