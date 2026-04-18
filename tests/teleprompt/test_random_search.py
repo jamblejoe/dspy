@@ -37,3 +37,28 @@ def test_basic_workflow():
         Example(input="What does the fox say?", output="Ring-ding-ding-ding-dingeringeding!").with_inputs("input"),
     ]
     optimizer.compile(student, teacher=teacher, trainset=trainset)
+
+
+def test_aggregation_fn_from_settings_used_in_optimization_loop():
+    """aggregation_fn set via dspy.configure is used by Evaluate inside the optimizer loop."""
+    student = SimpleModule("input -> output")
+    teacher = SimpleModule("input -> output")
+
+    lm = DummyLM(["Initial thoughts", "Finish[blue]"])
+    calls = []
+
+    def aggregation_fn(results):
+        calls.append(results)
+        return 50.0
+
+    dspy.configure(lm=lm, aggregation_fn=aggregation_fn)
+
+    optimizer = BootstrapFewShotWithRandomSearch(metric=simple_metric, max_bootstrapped_demos=1, max_labeled_demos=1)
+    trainset = [
+        Example(input="What is the color of the sky?", output="blue").with_inputs("input"),
+        Example(input="What does the fox say?", output="Ring-ding-ding-ding-dingeringeding!").with_inputs("input"),
+    ]
+    optimizer.compile(student, teacher=teacher, trainset=trainset)
+
+    assert len(calls) > 0
+    dspy.configure(aggregation_fn=None)
