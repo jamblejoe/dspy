@@ -183,7 +183,7 @@ class Evaluate:
             disable_progress_bar=not display_progress,
             max_errors=(self.max_errors if self.max_errors is not None else dspy.settings.max_errors),
             provide_traceback=self.provide_traceback,
-            compare_results=True,
+            compare_results=aggregation_fn is None,
         )
 
         def process_item(example):
